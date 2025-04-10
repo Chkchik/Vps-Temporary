@@ -1,26 +1,35 @@
-name: Free VPS with WireGuard VPN
+name: Setup VPS and VPN
 
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - main
 
 jobs:
-  build:
+  setup-vps:
     runs-on: ubuntu-latest
+    timeout-minutes: 120  # زيادة المهلة إلى ساعتين
     steps:
-      - name: Setup VPS with WireGuard
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Update and Install Dependencies
         run: |
           sudo apt update
           sudo apt install -y wireguard qrencode curl iptables
 
+      - name: Generate Server and Client Keys
+        run: |
           SERVER_PRIV_KEY=$(wg genkey)
           SERVER_PUB_KEY=$(echo $SERVER_PRIV_KEY | wg pubkey)
           CLIENT_PRIV_KEY=$(wg genkey)
           CLIENT_PUB_KEY=$(echo $CLIENT_PRIV_KEY | wg pubkey)
 
+      - name: Set up WireGuard Server Configuration
+        run: |
           SERVER_IP="10.0.0.1"
           CLIENT_IP="10.0.0.2"
           SERVER_PORT=51820
-
           echo "[Interface]
           Address = $SERVER_IP/24
           ListenPort = $SERVER_PORT
@@ -29,19 +38,24 @@ jobs:
           PostDown = iptables -D FORWARD -i %i -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
           " | sudo tee /etc/wireguard/wg0.conf
 
+      - name: Set up Client Configuration
+        run: |
           echo "[Peer]
           PublicKey = $CLIENT_PUB_KEY
           AllowedIPs = $CLIENT_IP/32
           " | sudo tee -a /etc/wireguard/wg0.conf
 
+      - name: Start and Enable WireGuard Server
+        run: |
           sudo systemctl start wg-quick@wg0
           sudo systemctl enable wg-quick@wg0
 
+      - name: Generate Client Configuration
+        run: |
           echo "[Interface]
           PrivateKey = $CLIENT_PRIV_KEY
           Address = $CLIENT_IP/24
           DNS = 1.1.1.1
-
           [Peer]
           PublicKey = $SERVER_PUB_KEY
           Endpoint = $(curl -s ifconfig.me):$SERVER_PORT
@@ -49,9 +63,12 @@ jobs:
           PersistentKeepalive = 25
           " > client.conf
 
+      - name: Show QR Code for Client
+        run: |
           echo "-------- QR CODE --------"
           qrencode -t ansiutf8 < client.conf
+
+      - name: Display Client Config
+        run: |
           echo "-------- CONFIG --------"
           cat client.conf
-
-          sleep 86400
