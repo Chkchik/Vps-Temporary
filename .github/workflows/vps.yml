@@ -1,4 +1,4 @@
-name: Free VPS WireGuard VPN
+name: Free VPS with WireGuard VPN
 
 on:
   workflow_dispatch:
@@ -7,46 +7,54 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - name: Setup VPS
-      run: |
-        sudo apt update && sudo apt install -y wireguard curl wget qrencode
-        wg genkey | tee privatekey | wg pubkey > publickey
-        SERVER_PRIV=$(cat privatekey)
-        SERVER_PUB=$(cat publickey)
-        
-        CLIENT_PRIV=$(wg genkey)
-        CLIENT_PUB=$(echo $CLIENT_PRIV | wg pubkey)
-        
-        SERVER_IP="10.66.66.1"
-        CLIENT_IP="10.66.66.2"
+      - name: Set up VPS with WireGuard
+        run: |
+          sudo apt update
+          sudo apt install -y wireguard qrencode
+          sudo modprobe wireguard
+          sudo sysctl -w net.ipv4.ip_forward=1
+          sudo sysctl -w net.ipv6.conf.all.forwarding=1
 
-        echo "[Interface]
-Address = $SERVER_IP/24
-ListenPort = 51820
-PrivateKey = $SERVER_PRIV
+          SERVER_PRIV_KEY=$(wg genkey)
+          SERVER_PUB_KEY=$(echo $SERVER_PRIV_KEY | wg pubkey)
+          CLIENT_PRIV_KEY=$(wg genkey)
+          CLIENT_PUB_KEY=$(echo $CLIENT_PRIV_KEY | wg pubkey)
 
-[Peer]
-PublicKey = $CLIENT_PUB
-AllowedIPs = $CLIENT_IP/32" > wg0.conf
+          SERVER_IP="10.0.0.1"
+          CLIENT_IP="10.0.0.2"
+          SERVER_PORT=51820
 
-        sudo mv wg0.conf /etc/wireguard/
-        sudo chmod 600 /etc/wireguard/wg0.conf
-        sudo wg-quick up wg0
-        
-        echo "[Interface]
-PrivateKey = $CLIENT_PRIV
-Address = $CLIENT_IP/32
-DNS = 1.1.1.1
+          echo "[Interface]
+          Address = $SERVER_IP/24
+          ListenPort = $SERVER_PORT
+          PrivateKey = $SERVER_PRIV_KEY
+          PostUp = iptables -A FORWARD -i %i -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+          PostDown = iptables -D FORWARD -i %i -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
+          " | sudo tee /etc/wireguard/wg0.conf
 
-[Peer]
-PublicKey = $SERVER_PUB
-Endpoint = $(curl -s ifconfig.me):51820
-AllowedIPs = 0.0.0.0/0, ::/0" > client.conf
+          echo "[Peer]
+          PublicKey = $CLIENT_PUB_KEY
+          AllowedIPs = $CLIENT_IP/32
+          " | sudo tee -a /etc/wireguard/wg0.conf
 
-        echo "========== VPN CONFIG =========="
-        cat client.conf
-        
-        echo "========== QR CODE =========="
-        qrencode -t ansiutf8 < client.conf
+          sudo systemctl start wg-quick@wg0
+          sudo systemctl enable wg-quick@wg0
 
-        sleep 86400
+          echo "[Interface]
+          PrivateKey = $CLIENT_PRIV_KEY
+          Address = $CLIENT_IP/24
+          DNS = 1.1.1.1
+
+          [Peer]
+          PublicKey = $SERVER_PUB_KEY
+          Endpoint = $(curl -s ifconfig.me):$SERVER_PORT
+          AllowedIPs = 0.0.0.0/0
+          PersistentKeepalive = 25
+          " > client.conf
+
+          qrencode -t ansiutf8 < client.conf
+          echo "Scan the above QR code with your WireGuard app."
+          echo "Or manually configure using the following settings:"
+          cat client.conf
+
+          sleep 86400
