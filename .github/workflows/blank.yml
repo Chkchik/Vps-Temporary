@@ -45,10 +45,9 @@ jobs:
           AllowedIPs = $CLIENT_IP/32
           " | sudo tee -a /etc/wireguard/wg0.conf
 
-      - name: Start and Enable WireGuard Server
+      - name: Start WireGuard Server
         run: |
-          sudo systemctl start wg-quick@wg0
-          sudo systemctl enable wg-quick@wg0
+          sudo wg-quick up wg0
 
       - name: Generate Client Configuration
         run: |
