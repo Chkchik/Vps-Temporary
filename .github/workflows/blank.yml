@@ -8,7 +8,7 @@ on:
 jobs:
   setup-vps:
     runs-on: ubuntu-latest
-    timeout-minutes: 120  # زيادة المهلة إلى ساعتين
+    timeout-minutes: 120
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
@@ -45,9 +45,10 @@ jobs:
           AllowedIPs = $CLIENT_IP/32
           " | sudo tee -a /etc/wireguard/wg0.conf
 
-      - name: Start WireGuard Server
+      - name: Start and Enable WireGuard Server
         run: |
-          sudo wg-quick up wg0
+          sudo systemctl start wg-quick@wg0
+          sudo systemctl enable wg-quick@wg0
 
       - name: Generate Client Configuration
         run: |
